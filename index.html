@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Factures Coaching</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#dashboard" aria-label="Accueil Factures Coaching">
+        <img class="brand-logo" src="alex-coaching-logo.jpeg" alt="Logo Alex Coaching" />
+        <span>Alex<br /><strong>Coaching</strong></span>
+      </a>
+      <p class="workspace-label">ESPACE DE TRAVAIL</p>
+      <nav aria-label="Navigation principale">
+        <button class="nav-item active" data-view="dashboard"><span>⌂</span> Tableau de bord</button>
+        <button class="nav-item" data-view="clients"><span>◉</span> Clients</button>
+        <button class="nav-item" data-view="invoices"><span>▤</span> Créer une facture</button>
+        <button class="nav-item" data-view="history"><span>◷</span> Historique</button>
+        <button class="nav-item" data-view="settings"><span>⚙</span> Mon activité</button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="dot"></span>
+        <p><strong>Mode préparation</strong><br />Ajoutez votre SIRET avant toute émission.</p>
+      </div>
+    </aside>
+
+    <main>
+      <section class="view active" id="dashboard">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">VOTRE ESPACE FACTURATION</p>
+            <h1>Bonjour, <span id="business-greeting">votre activité</span>.</h1>
+          </div>
+          <button class="primary-button" data-go-to="invoices">+ Nouvelle facture</button>
+        </header>
+        <section class="readiness-card">
+          <div class="readiness-icon">✓</div>
+          <div>
+            <h2>Votre outil est prêt à être configuré</h2>
+            <p>Créez vos clients et vos brouillons maintenant. Ajoutez votre SIRET, votre statut et vos conditions de règlement avant votre première facture définitive.</p>
+          </div>
+          <button class="text-button" data-go-to="settings">Configurer mon activité →</button>
+        </section>
+        <section class="stats" aria-label="Résumé de l'activité">
+          <article><p>Clients enregistrés</p><strong id="client-count">0</strong></article>
+          <article><p>Factures créées</p><strong id="invoice-count">0</strong></article>
+          <article><p>À encaisser</p><strong id="outstanding-total">0,00 €</strong></article>
+        </section>
+        <section class="panel">
+          <div class="panel-header"><div><h2>Dernières factures</h2><p>Retrouvez ici vos derniers brouillons et factures.</p></div><button class="text-button" data-go-to="history">Voir tout →</button></div>
+          <div id="recent-invoices" class="empty-state"><span>▤</span><p>Aucune facture pour le moment.</p><button class="secondary-button" data-go-to="invoices">Créer ma première facture</button></div>
+        </section>
+      </section>
+
+      <section class="view" id="clients">
+        <header class="page-header"><div><p class="eyebrow">CARNET D'ADRESSES</p><h1>Vos clients</h1><p class="subtitle">Enregistrez un client une fois, puis sélectionnez-le dans vos factures.</p></div></header>
+        <div class="two-columns">
+          <section class="panel form-panel">
+            <h2>Ajouter un client</h2>
+            <form id="client-form">
+              <label>Nom ou entreprise <input name="name" required placeholder="Ex. Camille Martin ou Studio Nova" /></label>
+              <label>E-mail <input name="email" type="email" placeholder="contact@exemple.fr" /></label>
+              <label>Adresse <textarea name="address" rows="3" placeholder="12 rue des Fleurs&#10;75000 Paris"></textarea></label>
+              <label>Notes <input name="notes" placeholder="Optionnel" /></label>
+              <button class="primary-button" type="submit">Enregistrer le client</button>
+            </form>
+          </section>
+          <section class="panel"><div class="panel-header"><div><h2>Clients enregistrés</h2><p id="client-list-subtitle">0 client</p></div></div><div id="clients-list" class="client-list empty-state compact"><span>◉</span><p>Votre carnet d'adresses est vide.</p></div></section>
+        </div>
+      </section>
+
+      <section class="view" id="invoices">
+        <header class="page-header"><div><p class="eyebrow">NOUVEAU DOCUMENT</p><h1>Créer une facture</h1><p class="subtitle">Les documents créés avant votre immatriculation restent des brouillons de préparation.</p></div></header>
+        <div class="legal-warning" id="profile-warning"><span>!</span><p><strong>Informations à compléter :</strong> ajoutez le SIRET et le statut TVA dans <button data-go-to="settings">Mon activité</button> avant d'envoyer une facture.</p></div>
+        <form id="invoice-form" class="invoice-form">
+          <section class="panel">
+            <div class="form-grid invoice-details">
+              <label>Client
+                <select id="invoice-client" required><option value="">Choisir un client…</option></select>
+              </label>
+              <label>Numéro de facture <input id="invoice-number-preview" disabled value="Attribué à l'enregistrement" /></label>
+              <label>Date de facture <input id="invoice-date" type="date" required /></label>
+              <label>Date d'échéance <input id="invoice-due-date" type="date" required /></label>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><div><h2>Prestations</h2><p>Ajoutez les séances, programmes ou autres services facturés.</p></div><button type="button" id="add-line" class="secondary-button">+ Ajouter une ligne</button></div>
+            <div class="line-items-wrap"><table class="line-items"><thead><tr><th>Prestation</th><th>Quantité</th><th>Prix unitaire HT</th><th>Total HT</th><th></th></tr></thead><tbody id="invoice-lines"></tbody></table></div>
+            <div class="invoice-totals"><div><span>Total HT</span><strong id="total-ht">0,00 €</strong></div><div id="vat-total-row"><span>TVA</span><strong id="total-vat">0,00 €</strong></div><div class="grand-total"><span>Total à régler</span><strong id="total-ttc">0,00 €</strong></div></div>
+          </section>
+          <section class="panel form-panel notes-panel"><label>Note affichée sur la facture <textarea id="invoice-note" rows="3" placeholder="Merci pour votre confiance."></textarea></label></section>
+          <div class="form-actions"><button class="secondary-button" type="button" id="preview-invoice">Aperçu / PDF</button><button class="primary-button" type="submit">Enregistrer la facture</button></div>
+        </form>
+      </section>
+
+      <section class="view" id="history">
+        <header class="page-header"><div><p class="eyebrow">SUIVI</p><h1>Historique des factures</h1><p class="subtitle">La numérotation est automatique et continue par année.</p></div></header>
+        <section class="panel table-panel"><div id="history-table" class="empty-state"><span>◷</span><p>Aucune facture enregistrée.</p></div></section>
+      </section>
+
+      <section class="view" id="settings">
+        <header class="page-header"><div><p class="eyebrow">PARAMÈTRES</p><h1>Mon activité</h1><p class="subtitle">Ces informations apparaîtront sur chaque facture PDF.</p></div></header>
+        <form id="profile-form" class="settings-form">
+          <section class="panel form-panel"><h2>Identité</h2><div class="form-grid">
+            <label>Nom commercial ou nom complet <input name="businessName" placeholder="Ex. Clara Durand Coaching" /></label>
+            <label>Forme juridique <input name="legalForm" placeholder="Ex. Micro-entreprise" /></label>
+            <label class="wide">Adresse professionnelle <textarea name="businessAddress" rows="3" placeholder="12 rue des Fleurs&#10;75000 Paris"></textarea></label>
+            <label>E-mail <input name="businessEmail" type="email" placeholder="bonjour@exemple.fr" /></label>
+            <label>Téléphone <input name="businessPhone" placeholder="06 00 00 00 00" /></label>
+            <label>SIRET <input name="siret" placeholder="À ajouter dès réception" /></label>
+          </div></section>
+          <section class="panel form-panel"><h2>TVA et règlement</h2><div class="form-grid">
+            <label>Régime de TVA <select name="vatMode"><option value="franchise">Franchise en base — TVA non applicable</option><option value="tva">Assujetti·e à la TVA</option></select></label>
+            <label class="vat-only">Taux de TVA <select name="vatRate"><option value="20">20 %</option><option value="10">10 %</option><option value="5.5">5,5 %</option></select></label>
+            <label class="vat-only">N° de TVA intracommunautaire <input name="vatNumber" placeholder="FR…" /></label>
+            <label>Délai de paiement (jours) <input name="paymentDays" type="number" min="0" value="30" /></label>
+            <label class="wide">Mention de règlement <textarea name="paymentTerms" rows="3">Paiement à réception de facture. En cas de retard de paiement, des pénalités pourront être appliquées selon les conditions convenues.</textarea></label>
+          </div><p class="field-help">Pour les factures entre professionnels, vérifiez avec votre expert-comptable les mentions de règlement et pénalités adaptées à votre situation.</p></section>
+          <div class="form-actions"><button class="primary-button" type="submit">Enregistrer mes informations</button></div>
+        </form>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+    <div class="modal" id="invoice-modal" aria-hidden="true"><div class="modal-backdrop" data-close-modal></div><section class="modal-content" role="dialog" aria-modal="true" aria-label="Aperçu de la facture"><div class="modal-actions"><button class="secondary-button" data-close-modal>Fermer</button><button class="primary-button" id="print-invoice">Télécharger en PDF</button></div><div id="printable-invoice" class="invoice-sheet"></div></section></div>
+    <script src="app.js"></script>
+  </body>
+</html>
