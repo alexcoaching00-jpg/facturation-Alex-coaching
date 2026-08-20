@@ -25,6 +25,8 @@ function sendState(state,msg){const b=document.querySelector("#sendOverlay .send
 function hideSendLater(ms){setTimeout(()=>document.querySelector("#sendOverlay").classList.remove("open"),ms)}
 
 async function pdfBase64FromNode(node){
+  if (typeof html2canvas === "undefined") throw new Error("html2canvas non chargé (bloqueur de pub ou CDN inaccessible)");
+  if (typeof window.jspdf === "undefined") throw new Error("jsPDF non chargé (bloqueur de pub ou CDN inaccessible)");
   const canvas = await html2canvas(node,{scale:2,backgroundColor:"#fffaf4"});
   const img = canvas.toDataURL("image/jpeg",0.95);
   const { jsPDF } = window.jspdf;
@@ -49,8 +51,9 @@ async function emailInvoice(invoice){
   try{
     base64 = await pdfBase64FromNode(document.querySelector("#paper"));
   }catch(err){
-    sendState("error","Impossible de générer le PDF.");
-    hideSendLater(3200);
+    console.error("Erreur génération PDF:", err);
+    sendState("error","PDF impossible : "+(err.message||"vérifie ta connexion et réessaie."));
+    hideSendLater(4500);
     return;
   }
 
