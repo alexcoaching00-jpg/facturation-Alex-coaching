@@ -1,124 +1,24 @@
-const STORAGE_KEY = "factures-coaching-v1";
-const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
-
-const defaultProfile = {
-  businessName: "Votre activité de coaching", legalForm: "", businessAddress: "",
-  businessEmail: "", businessPhone: "", siret: "", vatMode: "franchise",
-  vatRate: "20", vatNumber: "", paymentDays: "30",
-  paymentTerms: "Paiement à réception de facture. En cas de retard de paiement, des pénalités pourront être appliquées selon les conditions convenues."
-};
-
-let data = loadData();
-let draftLines = [newLine()];
-let toastTimer;
-
-function loadData() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return { profile: { ...defaultProfile, ...(saved?.profile || {}) }, clients: saved?.clients || [], invoices: saved?.invoices || [] };
-  } catch { return { profile: { ...defaultProfile }, clients: [], invoices: [] }; }
-}
-function saveData() { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
-function id() { return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
-function newLine() { return { id: id(), description: "Séance de coaching", quantity: 1, price: 0 }; }
-function today() { return new Date().toISOString().slice(0, 10); }
-function addDays(date, days) { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate() + Number(days || 0)); return d.toISOString().slice(0, 10); }
-function escapeHtml(value = "") { return String(value).replace(/[&<>'"]/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]); }
-function totalFor(lines) { const subtotal = lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.price || 0), 0); const rate = data.profile.vatMode === "tva" ? Number(data.profile.vatRate) / 100 : 0; return { subtotal, vat: subtotal * rate, total: subtotal * (1 + rate) }; }
-function statusLabel(status) { return status === "paid" ? "Payée" : "Brouillon"; }
-
-function showToast(message) { const toast = document.querySelector("#toast"); toast.textContent = message; toast.classList.add("toast-visible"); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("toast-visible"), 2800); }
-function goTo(view) { document.querySelectorAll(".view").forEach(item => item.classList.toggle("active", item.id === view)); document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.view === view)); window.scrollTo({ top: 0, behavior: "smooth" }); }
-
-function renderAll() {
-  const profile = data.profile;
-  document.querySelector("#business-greeting").textContent = profile.businessName || "votre activité";
-  renderClients(); renderInvoiceClientOptions(); renderLines(); renderDashboard(); renderHistory(); renderProfile();
-  document.querySelector("#profile-warning").style.display = profile.siret.trim() ? "none" : "flex";
-  document.querySelector("#vat-total-row").style.display = profile.vatMode === "tva" ? "flex" : "none";
-}
-
-function renderClients() {
-  const list = document.querySelector("#clients-list");
-  document.querySelector("#client-list-subtitle").textContent = `${data.clients.length} client${data.clients.length > 1 ? "s" : ""}`;
-  if (!data.clients.length) { list.className = "client-list empty-state compact"; list.innerHTML = "<span>◉</span><p>Votre carnet d'adresses est vide.</p>"; return; }
-  list.className = "client-list";
-  list.innerHTML = data.clients.map(client => `<article class="client-card"><div><strong>${escapeHtml(client.name)}</strong><small>${escapeHtml(client.email || client.address || "Aucune coordonnée ajoutée")}</small></div><button class="delete-button" data-delete-client="${client.id}" title="Supprimer">Supprimer</button></article>`).join("");
-}
-
-function renderInvoiceClientOptions() {
-  const select = document.querySelector("#invoice-client"); const selected = select.value;
-  select.innerHTML = `<option value="">Choisir un client…</option>${data.clients.map(client => `<option value="${client.id}">${escapeHtml(client.name)}</option>`).join("")}`;
-  select.value = selected;
-}
-
-function renderLines() {
-  const body = document.querySelector("#invoice-lines");
-  body.innerHTML = draftLines.map(line => `<tr data-line-id="${line.id}"><td><input class="line-description" value="${escapeHtml(line.description)}" aria-label="Prestation" placeholder="Prestation" /></td><td><input class="line-quantity quantity" type="number" min="0" step="0.5" value="${line.quantity}" aria-label="Quantité" /></td><td><input class="line-price price" type="number" min="0" step="0.01" value="${line.price}" aria-label="Prix unitaire HT" /></td><td class="total">${euro.format(Number(line.quantity || 0) * Number(line.price || 0))}</td><td><button type="button" class="remove-line" data-remove-line="${line.id}" aria-label="Supprimer la ligne">×</button></td></tr>`).join("");
-  const totals = totalFor(draftLines);
-  document.querySelector("#total-ht").textContent = euro.format(totals.subtotal); document.querySelector("#total-vat").textContent = euro.format(totals.vat); document.querySelector("#total-ttc").textContent = euro.format(totals.total);
-}
-
-function renderDashboard() {
-  document.querySelector("#client-count").textContent = data.clients.length;
-  document.querySelector("#invoice-count").textContent = data.invoices.length;
-  const outstanding = data.invoices.filter(invoice => invoice.status !== "paid").reduce((sum, invoice) => sum + invoice.total, 0);
-  document.querySelector("#outstanding-total").textContent = euro.format(outstanding);
-  const recent = data.invoices.slice().sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5);
-  const box = document.querySelector("#recent-invoices");
-  if (!recent.length) { box.className = "empty-state"; box.innerHTML = "<span>▤</span><p>Aucune facture pour le moment.</p><button class=\"secondary-button\" data-go-to=\"invoices\">Créer ma première facture</button>"; return; }
-  box.className = "";
-  box.innerHTML = invoiceTable(recent, true);
-}
-
-function invoiceTable(invoices, short = false) {
-  return `<div class="line-items-wrap"><table class="invoice-table"><thead><tr><th>Numéro</th><th>Client</th><th>Date</th><th>Montant</th><th>Statut</th><th></th></tr></thead><tbody>${invoices.map(invoice => { const client = data.clients.find(item => item.id === invoice.clientId); return `<tr><td><strong>${escapeHtml(invoice.number)}</strong></td><td>${escapeHtml(client?.name || invoice.clientName || "Client supprimé")}</td><td>${new Date(`${invoice.date}T12:00:00`).toLocaleDateString("fr-FR")}</td><td>${euro.format(invoice.total)}</td><td><button class="status-button" data-toggle-status="${invoice.id}"><span class="status ${invoice.status}">${statusLabel(invoice.status)}</span></button></td><td><button class="action-link" data-open-invoice="${invoice.id}">Voir</button></td></tr>`; }).join("")}</tbody></table></div>`;
-}
-function renderHistory() { const box = document.querySelector("#history-table"); if (!data.invoices.length) { box.className = "empty-state"; box.innerHTML = "<span>◷</span><p>Aucune facture enregistrée.</p>"; } else { box.className = ""; box.innerHTML = invoiceTable(data.invoices.slice().sort((a,b) => b.createdAt.localeCompare(a.createdAt))); } }
-
-function renderProfile() {
-  const form = document.querySelector("#profile-form"); Object.entries(data.profile).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value; });
-  form.querySelectorAll(".vat-only").forEach(element => element.style.display = data.profile.vatMode === "tva" ? "grid" : "none");
-}
-
-function nextNumber(date) { const year = (date || today()).slice(0, 4); const currentYear = data.invoices.filter(invoice => invoice.number.startsWith(`${year}-`)).length + 1; return `${year}-${String(currentYear).padStart(3, "0")}`; }
-function collectLines() { return draftLines.map(line => ({ ...line, description: line.description.trim() })).filter(line => line.description && Number(line.quantity) > 0); }
-
-function makeInvoiceFromForm() {
-  const clientId = document.querySelector("#invoice-client").value; const client = data.clients.find(item => item.id === clientId); const lines = collectLines();
-  if (!clientId || !client) { showToast("Choisissez d'abord un client."); return null; }
-  if (!lines.length) { showToast("Ajoutez au moins une prestation avec une quantité."); return null; }
-  const date = document.querySelector("#invoice-date").value; const dueDate = document.querySelector("#invoice-due-date").value;
-  if (!date || !dueDate) { showToast("Ajoutez la date et l'échéance."); return null; }
-  const totals = totalFor(lines);
-  return { id: id(), number: nextNumber(date), clientId, clientName: client.name, date, dueDate, lines, note: document.querySelector("#invoice-note").value.trim(), subtotal: totals.subtotal, vat: totals.vat, total: totals.total, status: "draft", profileSnapshot: { ...data.profile }, createdAt: new Date().toISOString() };
-}
-
-function invoiceMarkup(invoice) {
-  const client = data.clients.find(item => item.id === invoice.clientId) || { name: invoice.clientName, address: "" };
-  const profile = invoice.profileSnapshot || data.profile; const vatNote = profile.vatMode === "franchise" ? "TVA non applicable, art. 293 B du CGI." : `TVA ${profile.vatRate} %${profile.vatNumber ? ` — ${profile.vatNumber}` : ""}`;
-  return `<div class="sheet-heading"><div class="sheet-identity"><img class="sheet-logo" src="alex-coaching-logo.jpeg" alt="Logo Alex Coaching" /><div><div class="sheet-brand">${escapeHtml(profile.businessName || "Votre activité de coaching")}</div><p>${escapeHtml(profile.legalForm)}<br>${escapeHtml(profile.businessAddress)}<br>${escapeHtml(profile.businessEmail)}${profile.businessPhone ? `<br>${escapeHtml(profile.businessPhone)}` : ""}</p></div></div><div class="sheet-title">FACTURE<small>N° ${escapeHtml(invoice.number)}<br>Émise le ${new Date(`${invoice.date}T12:00:00`).toLocaleDateString("fr-FR")}</small></div></div><div class="sheet-parties"><div><p class="sheet-label">Facturé à</p><p><strong>${escapeHtml(client.name)}</strong><br>${escapeHtml(client.address || "Adresse à compléter")}</p></div><div><p class="sheet-label">Règlement</p><p>Échéance : ${new Date(`${invoice.dueDate}T12:00:00`).toLocaleDateString("fr-FR")}<br>${escapeHtml(vatNote)}</p></div></div><table class="sheet-table"><thead><tr><th>PRESTATION</th><th>QTÉ</th><th>PRIX UNIT. HT</th><th class="sheet-amount">TOTAL HT</th></tr></thead><tbody>${invoice.lines.map(line => `<tr><td>${escapeHtml(line.description)}</td><td>${line.quantity}</td><td>${euro.format(line.price)}</td><td class="sheet-amount">${euro.format(line.quantity * line.price)}</td></tr>`).join("")}</tbody></table><div class="sheet-sum"><p><span>Total HT</span><strong>${euro.format(invoice.subtotal)}</strong></p>${profile.vatMode === "tva" ? `<p><span>TVA</span><strong>${euro.format(invoice.vat)}</strong></p>` : ""}<p class="sheet-grand"><span>Total à régler</span><strong>${euro.format(invoice.total)}</strong></p></div>${invoice.note ? `<div class="sheet-terms"><strong>Note</strong><br>${escapeHtml(invoice.note)}</div>` : ""}<div class="sheet-terms"><strong>Conditions de règlement</strong><br>${escapeHtml(profile.paymentTerms)}<br><br>SIRET : ${escapeHtml(profile.siret || "À compléter avant émission")}</div><div class="sheet-footer">${escapeHtml(profile.businessName || "Votre activité de coaching")} · Facture ${escapeHtml(invoice.number)}</div>`;
-}
-function openInvoice(invoice) { document.querySelector("#printable-invoice").innerHTML = invoiceMarkup(invoice); document.querySelector("#invoice-modal").classList.add("open"); document.querySelector("#invoice-modal").setAttribute("aria-hidden", "false"); }
-function closeModal() { document.querySelector("#invoice-modal").classList.remove("open"); document.querySelector("#invoice-modal").setAttribute("aria-hidden", "true"); }
-
-document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => goTo(button.dataset.view)));
-document.addEventListener("click", event => {
-  const go = event.target.closest("[data-go-to]"); if (go) goTo(go.dataset.goTo);
-  const remove = event.target.closest("[data-remove-line]"); if (remove) { if (draftLines.length > 1) { draftLines = draftLines.filter(line => line.id !== remove.dataset.removeLine); renderLines(); } else { showToast("Une facture doit conserver au moins une ligne."); } }
-  const deleteClient = event.target.closest("[data-delete-client]"); if (deleteClient) { const id = deleteClient.dataset.deleteClient; const used = data.invoices.some(invoice => invoice.clientId === id); if (used) { showToast("Ce client est lié à une facture et ne peut pas être supprimé."); return; } data.clients = data.clients.filter(client => client.id !== id); saveData(); renderAll(); showToast("Client supprimé."); }
-  const toggle = event.target.closest("[data-toggle-status]"); if (toggle) { const invoice = data.invoices.find(item => item.id === toggle.dataset.toggleStatus); invoice.status = invoice.status === "paid" ? "draft" : "paid"; saveData(); renderAll(); }
-  const open = event.target.closest("[data-open-invoice]"); if (open) openInvoice(data.invoices.find(item => item.id === open.dataset.openInvoice));
-  if (event.target.closest("[data-close-modal]")) closeModal();
-});
-document.querySelector("#client-form").addEventListener("submit", event => { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)); data.clients.push({ id: id(), ...values }); saveData(); event.currentTarget.reset(); renderAll(); showToast("Client enregistré."); });
-document.querySelector("#add-line").addEventListener("click", () => { draftLines.push(newLine()); renderLines(); });
-document.querySelector("#invoice-lines").addEventListener("change", event => { const row = event.target.closest("tr"); if (!row) return; const line = draftLines.find(item => item.id === row.dataset.lineId); if (event.target.classList.contains("line-description")) line.description = event.target.value; if (event.target.classList.contains("line-quantity")) line.quantity = Number(event.target.value); if (event.target.classList.contains("line-price")) line.price = Number(event.target.value); renderLines(); });
-document.querySelector("#invoice-form").addEventListener("submit", event => { event.preventDefault(); const invoice = makeInvoiceFromForm(); if (!invoice) return; data.invoices.push(invoice); saveData(); renderAll(); draftLines = [newLine()]; event.currentTarget.reset(); document.querySelector("#invoice-date").value = today(); document.querySelector("#invoice-due-date").value = addDays(today(), data.profile.paymentDays); document.querySelector("#invoice-number-preview").value = "Attribué à l'enregistrement"; renderLines(); showToast(`Facture ${invoice.number} enregistrée.`); openInvoice(invoice); });
-document.querySelector("#preview-invoice").addEventListener("click", () => { const invoice = makeInvoiceFromForm(); if (invoice) openInvoice(invoice); });
-document.querySelector("#profile-form").addEventListener("submit", event => { event.preventDefault(); data.profile = { ...data.profile, ...Object.fromEntries(new FormData(event.currentTarget)) }; saveData(); renderAll(); document.querySelector("#invoice-due-date").value = addDays(document.querySelector("#invoice-date").value || today(), data.profile.paymentDays); showToast("Informations enregistrées."); });
-document.querySelector("[name=vatMode]").addEventListener("change", event => { document.querySelectorAll(".vat-only").forEach(item => item.style.display = event.target.value === "tva" ? "grid" : "none"); });
-document.querySelector("#invoice-date").addEventListener("change", event => { document.querySelector("#invoice-due-date").value = addDays(event.target.value, data.profile.paymentDays); });
-document.querySelector("#print-invoice").addEventListener("click", () => window.print());
-
-document.querySelector("#invoice-date").value = today(); document.querySelector("#invoice-due-date").value = addDays(today(), data.profile.paymentDays); renderAll();
+const KEY = "alex-coaching-factures-v2";
+const money = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+const defaults = { businessName:"Alex Coaching", legalForm:"", businessAddress:"", businessEmail:"", businessPhone:"", siret:"", vatMode:"franchise", vatRate:"20", paymentDays:"30", paymentTerms:"Paiement à réception de facture." };
+let state = read(); let lines = [line()]; let toastDelay;
+function id(){return globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random()}`}
+function read(){try{const x=JSON.parse(localStorage.getItem(KEY));return {profile:{...defaults,...(x?.profile||{})},clients:x?.clients||[],invoices:x?.invoices||[]}}catch{return {profile:{...defaults},clients:[],invoices:[]}}}
+function save(){localStorage.setItem(KEY,JSON.stringify(state))}function line(){return {id:id(),description:"Séance de coaching",quantity:1,price:0}}function today(){return new Date().toISOString().slice(0,10)}function datePlus(date,days){const d=new Date(`${date}T12:00:00`);d.setDate(d.getDate()+Number(days||0));return d.toISOString().slice(0,10)}function esc(s=""){return String(s).replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[c])}
+function totals(items){const ht=items.reduce((sum,x)=>sum+Number(x.quantity||0)*Number(x.price||0),0);const t=state.profile.vatMode==="tva"?Number(state.profile.vatRate)/100:0;return {ht,vat:ht*t,ttc:ht*(1+t)}}function flash(text){const t=document.querySelector("#toast");t.textContent=text;t.classList.add("show-toast");clearTimeout(toastDelay);toastDelay=setTimeout(()=>t.classList.remove("show-toast"),2600)}
+function go(page){document.querySelectorAll(".page").forEach(x=>x.classList.toggle("active",x.id===page));document.querySelectorAll(".nav").forEach(x=>x.classList.toggle("active",x.dataset.view===page));window.scrollTo({top:0,behavior:"smooth"})}
+function fillClients(){const select=document.querySelector("#invoice-client"),saved=select.value;select.innerHTML=`<option value="">Choisir un client…</option>${state.clients.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}`;select.value=saved;const list=document.querySelector("#client-list");if(!state.clients.length){list.className="empty";list.textContent="Ton carnet est vide.";return}list.className="";list.innerHTML=state.clients.map(x=>`<article class="client"><div><strong>${esc(x.name)}</strong><small>${esc(x.email||x.address||"Coordonnées à compléter")}</small></div><button class="delete" data-delete-client="${x.id}">Supprimer</button></article>`).join("")}
+function refreshTotals(){document.querySelectorAll("#lines tr").forEach(row=>{const x=lines.find(y=>y.id===row.dataset.id);if(x)row.querySelector(".line-total").textContent=money.format(Number(x.quantity||0)*Number(x.price||0))});const t=totals(lines);document.querySelector("#total-ht").textContent=money.format(t.ht);document.querySelector("#total-vat").textContent=money.format(t.vat);document.querySelector("#total-ttc").textContent=money.format(t.ttc);document.querySelector("#vat-row").style.display=state.profile.vatMode==="tva"?"flex":"none"}
+function renderLines(){document.querySelector("#lines").innerHTML=lines.map(x=>`<tr data-id="${x.id}"><td><input class="desc" value="${esc(x.description)}" aria-label="Prestation"></td><td><input class="qty" type="number" min="0" step="0.5" value="${x.quantity}" aria-label="Quantité"></td><td><input class="price" type="number" min="0" step="0.01" value="${x.price}" aria-label="Prix unitaire HT"></td><td class="line-total"></td><td><button type="button" class="remove" data-remove="${x.id}">×</button></td></tr>`).join("");refreshTotals()}
+function nextNumber(date){const year=date.slice(0,4);return `${year}-${String(state.invoices.filter(x=>x.number.startsWith(`${year}-`)).length+1).padStart(3,"0")}`}
+function table(invoices){return `<div class="table-scroll"><table class="history-table"><thead><tr><th>NUMÉRO</th><th>CLIENT</th><th>DATE</th><th>TTC</th><th>STATUT</th><th></th></tr></thead><tbody>${invoices.map(x=>`<tr><td><strong>${x.number}</strong></td><td>${esc(x.clientName)}</td><td>${new Date(`${x.date}T12:00:00`).toLocaleDateString("fr-FR")}</td><td>${money.format(x.ttc)}</td><td><button class="badge ${x.status}" data-status="${x.id}">${x.status==="paid"?"Payée":"Brouillon"}</button></td><td><button class="view-button" data-open="${x.id}">Voir</button></td></tr>`).join("")}</tbody></table></div>`}
+function renderSummary(){document.querySelector("#stat-clients").textContent=state.clients.length;document.querySelector("#stat-invoices").textContent=state.invoices.length;document.querySelector("#stat-outstanding").textContent=money.format(state.invoices.filter(x=>x.status!=="paid").reduce((s,x)=>s+x.ttc,0));const recent=state.invoices.slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,5);document.querySelector("#recent").className=recent.length?"":"empty";document.querySelector("#recent").innerHTML=recent.length?table(recent):"Aucune facture créée pour le moment.";const history=document.querySelector("#history-list");history.className=state.invoices.length?"":"empty";history.innerHTML=state.invoices.length?table(state.invoices.slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt))):"Aucune facture enregistrée."}
+function renderProfile(){const f=document.querySelector("#profile-form");Object.entries(state.profile).forEach(([k,v])=>{if(f.elements[k])f.elements[k].value=v});f.querySelectorAll(".vat-field").forEach(x=>x.style.display=state.profile.vatMode==="tva"?"grid":"none");document.querySelector("#legal-alert").style.display=state.profile.siret.trim()?"none":"flex"}
+function render(){fillClients();renderLines();renderSummary();renderProfile()}
+function collectInvoice(){const client=state.clients.find(x=>x.id===document.querySelector("#invoice-client").value),items=lines.map(x=>({...x,description:x.description.trim()})).filter(x=>x.description&&Number(x.quantity)>0);if(!client){flash("Choisis d’abord un client.");return}if(!items.length){flash("Ajoute une prestation.");return}const date=document.querySelector("#invoice-date").value,due=document.querySelector("#invoice-due").value;if(!date||!due){flash("Ajoute les dates de facture.");return}const t=totals(items);return {id:id(),number:nextNumber(date),clientId:client.id,clientName:client.name,date,due,items,note:document.querySelector("#invoice-note").value.trim(),...t,status:"draft",profile:{...state.profile},createdAt:new Date().toISOString()}}
+function paper(invoice){const p=invoice.profile||state.profile,client=state.clients.find(x=>x.id===invoice.clientId)||{name:invoice.clientName,address:""},vat=p.vatMode==="tva"?`TVA ${p.vatRate} %` : "TVA non applicable, art. 293 B du CGI.";return `<div class="paper-header"><div class="paper-brand"><img src="alex-coaching-logo.jpeg" alt="Alex Coaching"><div><h3>${esc(p.businessName)}</h3><p>${esc(p.legalForm)}<br>${esc(p.businessAddress)}<br>${esc(p.businessEmail)}${p.businessPhone?`<br>${esc(p.businessPhone)}`:""}</p></div></div><div><h4>FACTURE</h4><small>N° ${invoice.number}<br>Émise le ${new Date(`${invoice.date}T12:00:00`).toLocaleDateString("fr-FR")}</small></div></div><div class="paper-parties"><div><p class="paper-label">FACTURÉ À</p><p><strong>${esc(client.name)}</strong><br>${esc(client.address||"Adresse à compléter")}</p></div><div><p class="paper-label">RÈGLEMENT</p><p>Échéance : ${new Date(`${invoice.due}T12:00:00`).toLocaleDateString("fr-FR")}<br>${vat}</p></div></div><table><thead><tr><th>PRESTATION</th><th>QTÉ</th><th>PRIX UNIT. HT</th><th class="right">TOTAL HT</th></tr></thead><tbody>${invoice.items.map(x=>`<tr><td>${esc(x.description)}</td><td>${x.quantity}</td><td>${money.format(x.price)}</td><td class="right">${money.format(x.quantity*x.price)}</td></tr>`).join("")}</tbody></table><div class="paper-sums"><p><span>Total HT</span><strong>${money.format(invoice.ht)}</strong></p>${p.vatMode==="tva"?`<p><span>TVA</span><strong>${money.format(invoice.vat)}</strong></p>`:""}<p class="grand"><span>TOTAL TTC</span><strong>${money.format(invoice.ttc)}</strong></p></div>${invoice.note?`<p><strong>Note</strong><br>${esc(invoice.note)}</p>`:""}<p class="paper-footer">${esc(p.paymentTerms)}<br><br>SIRET : ${esc(p.siret||"À compléter avant émission")}</p>`}
+function open(invoice){document.querySelector("#paper").innerHTML=paper(invoice);document.querySelector("#modal").classList.add("open")}function close(){document.querySelector("#modal").classList.remove("open")}
+document.querySelectorAll("[data-view]").forEach(x=>x.addEventListener("click",e=>{e.preventDefault();go(x.dataset.view)}));document.addEventListener("click",e=>{const g=e.target.closest("[data-go]");if(g)go(g.dataset.go);if(e.target.closest("[data-close]"))close();const del=e.target.closest("[data-delete-client]");if(del){if(state.invoices.some(x=>x.clientId===del.dataset.deleteClient)){flash("Ce client est lié à une facture.");return}state.clients=state.clients.filter(x=>x.id!==del.dataset.deleteClient);save();render();flash("Client supprimé.")}const remove=e.target.closest("[data-remove]");if(remove){if(lines.length===1){flash("Une facture doit avoir au moins une ligne.");return}lines=lines.filter(x=>x.id!==remove.dataset.remove);renderLines()}const openBtn=e.target.closest("[data-open]");if(openBtn)open(state.invoices.find(x=>x.id===openBtn.dataset.open));const status=e.target.closest("[data-status]");if(status){const x=state.invoices.find(y=>y.id===status.dataset.status);x.status=x.status==="paid"?"draft":"paid";save();renderSummary()}});
+document.querySelector("#client-form").addEventListener("submit",e=>{e.preventDefault();state.clients.push({id:id(),...Object.fromEntries(new FormData(e.currentTarget))});save();e.currentTarget.reset();render();flash("Client enregistré.")});document.querySelector("#add-line").addEventListener("click",()=>{lines.push(line());renderLines()});document.querySelector("#lines").addEventListener("input",e=>{const row=e.target.closest("tr"),x=lines.find(y=>y.id===row?.dataset.id);if(!x)return;if(e.target.classList.contains("desc"))x.description=e.target.value;if(e.target.classList.contains("qty"))x.quantity=Number(e.target.value);if(e.target.classList.contains("price"))x.price=Number(e.target.value);refreshTotals()});
+document.querySelector("#invoice-form").addEventListener("submit",e=>{e.preventDefault();const x=collectInvoice();if(!x)return;state.invoices.push(x);save();renderSummary();lines=[line()];e.currentTarget.reset();document.querySelector("#invoice-date").value=today();document.querySelector("#invoice-due").value=datePlus(today(),state.profile.paymentDays);renderLines();flash(`Facture ${x.number} enregistrée.`);open(x)});document.querySelector("#preview").addEventListener("click",()=>{const x=collectInvoice();if(x)open(x)});document.querySelector("#profile-form").addEventListener("submit",e=>{e.preventDefault();state.profile={...state.profile,...Object.fromEntries(new FormData(e.currentTarget))};save();render();document.querySelector("#invoice-due").value=datePlus(document.querySelector("#invoice-date").value||today(),state.profile.paymentDays);flash("Informations enregistrées.")});document.querySelector("[name=vatMode]").addEventListener("change",e=>document.querySelectorAll(".vat-field").forEach(x=>x.style.display=e.target.value==="tva"?"grid":"none"));document.querySelector("#invoice-date").addEventListener("change",e=>document.querySelector("#invoice-due").value=datePlus(e.target.value,state.profile.paymentDays));document.querySelector("#print").addEventListener("click",()=>window.print());
+document.querySelector("#invoice-date").value=today();document.querySelector("#invoice-due").value=datePlus(today(),state.profile.paymentDays);render();
