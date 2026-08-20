@@ -45,9 +45,12 @@ async function emailInvoice(invoice){
   if(!state.profile.web3key){ sendState("error","Ajoute ta clé d'envoi dans Mon activité."); hideSendLater(3200); return; }
 
   showSend("Génération du PDF…");
-  document.querySelector("#paper").innerHTML = paper(invoice);
-  document.querySelector("#modal").classList.add("open","capturing");
-  const logoImg = document.querySelector("#paper img");
+  const captureBox = document.createElement("div");
+  captureBox.style.cssText = "position:fixed; left:-9999px; top:0; width:794px; background:#fffaf4;";
+  captureBox.className = "paper";
+  captureBox.innerHTML = paper(invoice);
+  document.body.appendChild(captureBox);
+  const logoImg = captureBox.querySelector("img");
   await new Promise(resolve=>{
     if(!logoImg || logoImg.complete){ resolve(); return; }
     logoImg.addEventListener("load",resolve,{once:true});
@@ -56,15 +59,15 @@ async function emailInvoice(invoice){
   });
   let base64;
   try{
-    base64 = await pdfBase64FromNode(document.querySelector("#paper"));
+    base64 = await pdfBase64FromNode(captureBox);
   }catch(err){
     console.error("Erreur génération PDF:", err);
-    document.querySelector("#modal").classList.remove("open","capturing");
+    captureBox.remove();
     sendState("error","PDF impossible : "+(err.message||"vérifie ta connexion et réessaie."));
     hideSendLater(4500);
     return;
   }
-  document.querySelector("#modal").classList.remove("open","capturing");
+  captureBox.remove();
 
   showSend("Envoi de l'email à "+client.email+"…");
   const payload = {
