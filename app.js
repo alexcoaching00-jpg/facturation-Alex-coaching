@@ -1,6 +1,6 @@
 const KEY = "alex-coaching-factures-v2";
 const money = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
-const defaults = { businessName:"Alex Coaching", legalForm:"", businessAddress:"", businessEmail:"alexcoaching00@gmail.com", businessPhone:"07 80 71 58 85", siret:"", vatMode:"franchise", vatRate:"20", paymentDays:"30", paymentTerms:"Paiement à réception de facture.", emailjsService:"service_8rv6sat", emailjsTemplate:"template_bmfebqc", emailjsKey:"bEOf9NxBpDuJ1VHFD" };
+const defaults = { businessName:"Alex Coaching", legalForm:"", businessAddress:"", businessEmail:"alexcoaching00@gmail.com", businessPhone:"07 80 71 58 85", siret:"", vatMode:"franchise", vatRate:"20", paymentDays:"30", paymentTerms:"Paiement à réception de facture." };
 let state = read(); let lines = [line()]; let toastDelay;
 function id(){return globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random()}`}
 function read(){try{const x=JSON.parse(localStorage.getItem(KEY));return {profile:{...defaults,...(x?.profile||{})},clients:x?.clients||[],invoices:x?.invoices||[]}}catch{return {profile:{...defaults},clients:[],invoices:[]}}}
@@ -43,9 +43,6 @@ async function pdfFileFromNode(node, filename){
 async function emailInvoice(invoice){
   const client = state.clients.find(x=>x.id===invoice.clientId);
   if(!client?.email){ sendState("error","Ce client n'a pas d'adresse email."); hideSendLater(3200); return; }
-  const { emailjsService, emailjsTemplate, emailjsKey } = state.profile;
-  if(!emailjsService || !emailjsTemplate || !emailjsKey){ sendState("error","Configure EmailJS dans Mon activité (Service ID, Template ID, clé publique)."); hideSendLater(4000); return; }
-  if(typeof emailjs === "undefined"){ sendState("error","EmailJS non chargé (bloqueur de pub ou CDN inaccessible)."); hideSendLater(4000); return; }
 
   showSend("Génération du PDF…");
   const captureBox = document.createElement("div");
@@ -72,34 +69,38 @@ async function emailInvoice(invoice){
   }
   captureBox.remove();
 
-  showSend("Envoi de l'email à "+client.email+"…");
-  try{
-    emailjs.init({publicKey: emailjsKey});
-    await emailjs.send(emailjsService, emailjsTemplate, {
-      to_email: client.email,
-      to_name: client.name,
-      from_name: state.profile.businessName || "Alex Coaching",
-      invoice_number: invoice.number,
-      amount: money.format(invoice.ttc),
-      note: invoice.note || "",
-      attachment: pdfFile
-    });
-    state.invoices.push({...invoice,status:"draft"});
-    save();
-    renderSummary();
-    sendState("success","Facture envoyée à "+client.email+" ✓");
-    flash(`Facture ${invoice.number} envoyée.`);
-    lines=[line()];
-    document.querySelector("#invoice-form").reset();
-    document.querySelector("#invoice-date").value=today();
-    document.querySelector("#invoice-due").value=datePlus(today(),state.profile.paymentDays);
-    renderLines();
-    hideSendLater(2200);
-  }catch(err){
-    console.error("Erreur envoi EmailJS:", err);
-    sendState("error","Échec de l'envoi : "+(err.text||err.message||"réessaie."));
-    hideSendLater(4000);
-  }
+  // Téléchargement automatique du PDF
+  const dlLink = document.createElement("a");
+  dlLink.href = URL.createObjectURL(pdfFile);
+  dlLink.download = pdfFile.name;
+  document.body.appendChild(dlLink);
+  dlLink.click();
+  dlLink.remove();
+
+  // Sauvegarde de la facture dans l'historique
+  state.invoices.push({...invoice,status:"draft"});
+  save();
+  renderSummary();
+
+  // Ouverture du mail pré-rempli, PDF déjà téléchargé prêt à glisser
+  const subject = encodeURIComponent(`Facture ${invoice.number} — ${state.profile.businessName || "Alex Coaching"}`);
+  const body = encodeURIComponent(
+    `Bonjour ${client.name},\n\n`+
+    `Voici ta facture ${invoice.number} d'un montant de ${money.format(invoice.ttc)}.\n\n`+
+    `Le PDF vient d'être téléchargé sur ton ordinateur — pense à le glisser dans ce mail avant de l'envoyer.\n\n`+
+    (invoice.note ? invoice.note+"\n\n" : "")+
+    `Merci de ta confiance.\n${state.profile.businessName || "Alex Coaching"}`
+  );
+  window.location.href = `mailto:${client.email}?subject=${subject}&body=${body}`;
+
+  sendState("success","PDF téléchargé — n'oublie pas de le joindre dans le mail qui s'ouvre ✓");
+  flash(`Facture ${invoice.number} générée.`);
+  lines=[line()];
+  document.querySelector("#invoice-form").reset();
+  document.querySelector("#invoice-date").value=today();
+  document.querySelector("#invoice-due").value=datePlus(today(),state.profile.paymentDays);
+  renderLines();
+  hideSendLater(3200);
 }
 
 document.querySelector("#invoice-form").addEventListener("submit",e=>{
