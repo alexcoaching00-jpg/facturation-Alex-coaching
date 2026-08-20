@@ -1,6 +1,6 @@
 const KEY = "alex-coaching-factures-v2";
 const money = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
-const defaults = { businessName:"Alex Coaching", legalForm:"", businessAddress:"", businessEmail:"", businessPhone:"", siret:"", vatMode:"franchise", vatRate:"20", paymentDays:"30", paymentTerms:"Paiement à réception de facture.", web3key:"b540a7bd-9c43-430a-a21a-a2d32a7bd2fb" };
+const defaults = { businessName:"Alex Coaching", legalForm:"", businessAddress:"", businessEmail:"alexcoaching00@gmail.com", businessPhone:"07 80 71 58 85", siret:"", vatMode:"franchise", vatRate:"20", paymentDays:"30", paymentTerms:"Paiement à réception de facture.", emailjsService:"service_8rv6sat", emailjsTemplate:"template_bmfebqc", emailjsKey:"bEOf9NxBpDuJ1VHFD" };
 let state = read(); let lines = [line()]; let toastDelay;
 function id(){return globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random()}`}
 function read(){try{const x=JSON.parse(localStorage.getItem(KEY));return {profile:{...defaults,...(x?.profile||{})},clients:x?.clients||[],invoices:x?.invoices||[]}}catch{return {profile:{...defaults},clients:[],invoices:[]}}}
@@ -24,7 +24,7 @@ function showSend(msg){const o=document.querySelector("#sendOverlay"),b=o.queryS
 function sendState(state,msg){const b=document.querySelector("#sendOverlay .send-box");b.className="send-box "+state;document.querySelector("#sendStatus").textContent=msg}
 function hideSendLater(ms){setTimeout(()=>document.querySelector("#sendOverlay").classList.remove("open"),ms)}
 
-async function pdfBase64FromNode(node){
+async function pdfFileFromNode(node, filename){
   if (typeof html2canvas === "undefined") throw new Error("html2canvas non chargé (bloqueur de pub ou CDN inaccessible)");
   if (typeof window.jspdf === "undefined") throw new Error("jsPDF non chargé (bloqueur de pub ou CDN inaccessible)");
   const canvas = await html2canvas(node,{scale:2,backgroundColor:"#fffaf4"});
@@ -36,13 +36,16 @@ async function pdfBase64FromNode(node){
   const ratio = Math.min(pageW/canvas.width, pageH/canvas.height);
   const w = canvas.width*ratio, h = canvas.height*ratio;
   pdf.addImage(img,"JPEG",(pageW-w)/2,10,w,Math.min(h,pageH-20));
-  return pdf.output("datauristring").split(",")[1];
+  const blob = pdf.output("blob");
+  return new File([blob], filename, { type: "application/pdf" });
 }
 
 async function emailInvoice(invoice){
   const client = state.clients.find(x=>x.id===invoice.clientId);
   if(!client?.email){ sendState("error","Ce client n'a pas d'adresse email."); hideSendLater(3200); return; }
-  if(!state.profile.web3key){ sendState("error","Ajoute ta clé d'envoi dans Mon activité."); hideSendLater(3200); return; }
+  const { emailjsService, emailjsTemplate, emailjsKey } = state.profile;
+  if(!emailjsService || !emailjsTemplate || !emailjsKey){ sendState("error","Configure EmailJS dans Mon activité (Service ID, Template ID, clé publique)."); hideSendLater(4000); return; }
+  if(typeof emailjs === "undefined"){ sendState("error","EmailJS non chargé (bloqueur de pub ou CDN inaccessible)."); hideSendLater(4000); return; }
 
   showSend("Génération du PDF…");
   const captureBox = document.createElement("div");
@@ -57,9 +60,9 @@ async function emailInvoice(invoice){
     logoImg.addEventListener("error",()=>{logoImg.style.display="none"; resolve();},{once:true});
     setTimeout(resolve,1500); // filet de sécurité si l'image ne répond jamais
   });
-  let base64;
+  let pdfFile;
   try{
-    base64 = await pdfBase64FromNode(captureBox);
+    pdfFile = await pdfFileFromNode(captureBox, `facture-${invoice.number}.pdf`);
   }catch(err){
     console.error("Erreur génération PDF:", err);
     captureBox.remove();
@@ -70,43 +73,32 @@ async function emailInvoice(invoice){
   captureBox.remove();
 
   showSend("Envoi de l'email à "+client.email+"…");
-  const payload = {
-    access_key: state.profile.web3key,
-    subject: `Facture ${invoice.number} — ${state.profile.businessName}`,
-    from_name: state.profile.businessName || "Alex Coaching",
-    email: client.email,
-    to: client.email,
-    message: `Bonjour ${client.name},\n\nVeuillez trouver ci-joint votre facture ${invoice.number} d'un montant de ${money.format(invoice.ttc)}.\n\n${invoice.note || ""}\n\nMerci de votre confiance.\n${state.profile.businessName}`,
-    attachment: base64,
-    attachment_filename: `facture-${invoice.number}.pdf`
-  };
-
   try{
-    const res = await fetch("https://api.web3forms.com/submit",{
-      method:"POST",
-      headers:{"Content-Type":"application/json",Accept:"application/json"},
-      body: JSON.stringify(payload)
+    emailjs.init({publicKey: emailjsKey});
+    await emailjs.send(emailjsService, emailjsTemplate, {
+      to_email: client.email,
+      to_name: client.name,
+      from_name: state.profile.businessName || "Alex Coaching",
+      invoice_number: invoice.number,
+      amount: money.format(invoice.ttc),
+      note: invoice.note || "",
+      attachment: pdfFile
     });
-    const data = await res.json();
-    if(data.success){
-      state.invoices.push({...invoice,status:"draft"});
-      save();
-      renderSummary();
-      sendState("success","Facture envoyée à "+client.email+" ✓");
-      flash(`Facture ${invoice.number} envoyée.`);
-      lines=[line()];
-      document.querySelector("#invoice-form").reset();
-      document.querySelector("#invoice-date").value=today();
-      document.querySelector("#invoice-due").value=datePlus(today(),state.profile.paymentDays);
-      renderLines();
-      hideSendLater(2200);
-    } else {
-      sendState("error","Échec de l'envoi : "+(data.message||"réessaie."));
-      hideSendLater(3500);
-    }
+    state.invoices.push({...invoice,status:"draft"});
+    save();
+    renderSummary();
+    sendState("success","Facture envoyée à "+client.email+" ✓");
+    flash(`Facture ${invoice.number} envoyée.`);
+    lines=[line()];
+    document.querySelector("#invoice-form").reset();
+    document.querySelector("#invoice-date").value=today();
+    document.querySelector("#invoice-due").value=datePlus(today(),state.profile.paymentDays);
+    renderLines();
+    hideSendLater(2200);
   }catch(err){
-    sendState("error","Erreur réseau, réessaie.");
-    hideSendLater(3500);
+    console.error("Erreur envoi EmailJS:", err);
+    sendState("error","Échec de l'envoi : "+(err.text||err.message||"réessaie."));
+    hideSendLater(4000);
   }
 }
 
