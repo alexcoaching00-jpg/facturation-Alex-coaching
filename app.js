@@ -46,16 +46,25 @@ async function emailInvoice(invoice){
 
   showSend("Génération du PDF…");
   document.querySelector("#paper").innerHTML = paper(invoice);
-  await new Promise(r=>setTimeout(r,80));
+  document.querySelector("#modal").classList.add("open","capturing");
+  const logoImg = document.querySelector("#paper img");
+  await new Promise(resolve=>{
+    if(!logoImg || logoImg.complete){ resolve(); return; }
+    logoImg.addEventListener("load",resolve,{once:true});
+    logoImg.addEventListener("error",()=>{logoImg.style.display="none"; resolve();},{once:true});
+    setTimeout(resolve,1500); // filet de sécurité si l'image ne répond jamais
+  });
   let base64;
   try{
     base64 = await pdfBase64FromNode(document.querySelector("#paper"));
   }catch(err){
     console.error("Erreur génération PDF:", err);
+    document.querySelector("#modal").classList.remove("open","capturing");
     sendState("error","PDF impossible : "+(err.message||"vérifie ta connexion et réessaie."));
     hideSendLater(4500);
     return;
   }
+  document.querySelector("#modal").classList.remove("open","capturing");
 
   showSend("Envoi de l'email à "+client.email+"…");
   const payload = {
